@@ -51,7 +51,7 @@ sudo apt-get install -y ffmpeg python3.11 python3.11-venv
 Рекомендуется использовать отдельный Twitch-аккаунт для бота. Токену нужны scope:
 
 - `chat:read`
-- `chat:write`
+- `chat:edit`
 
 В `.env` токен можно указать как `oauth:...` или без префикса — приложение само
 добавит `oauth:`.
