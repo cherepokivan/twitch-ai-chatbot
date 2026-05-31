@@ -1,0 +1,26 @@
+[project]
+name = "twitch-ai-chatbot"
+version = "0.1.0"
+description = "LLM-powered Twitch chatbot that can read chat, observe a stream, and answer in character."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.93.0",
+    "groq>=0.13.0",
+    "vosk>=0.3.45",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "twitchio>=2.10.0,<3.0.0",
+    "streamlink>=6.7.0",
+]
+
+[project.scripts]
+twitch-ai-chatbot = "twitch_ai_chatbot.main:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
