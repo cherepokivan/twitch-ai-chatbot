@@ -52,7 +52,7 @@ class TwitchAIBot(commands.Bot):
     @commands.command(name="togglechat")
     async def toggle_chat_context(self, ctx: commands.Context) -> None:
         """Toggle whether viewer chat is stored and sent to the LLM."""
-        if not _is_streamer_or_mod(ctx):
+        if not _can_use_admin_commands(ctx, self.settings):
             return
         self.settings.read_chat = not self.settings.read_chat
         state = "включено" if self.settings.read_chat else "выключено"
@@ -104,12 +104,25 @@ class TwitchAIBot(commands.Bot):
                     await message.channel.send(reply)
                     self._last_reply_at = datetime.now(timezone.utc)
             except Exception:  # noqa: BLE001 - chat bot should stay online
-                logger.exception("Failed to generate/send reply")
+                if self.settings.log_tracebacks:
+                    logger.exception("Failed to generate/send reply")
+                else:
+                    logger.warning("Failed to generate/send reply: %s", _format_error())
 
 
-def _is_streamer_or_mod(ctx: commands.Context) -> bool:
+def _can_use_admin_commands(ctx: commands.Context, settings: BotSettings) -> bool:
     author = ctx.author
     if author is None:
         return False
+    author_name = getattr(author, "name", "").lower()
+    if author_name in settings.admin_usernames:
+        return True
     badges = getattr(author, "badges", {}) or {}
     return bool(badges.get("broadcaster") or badges.get("moderator"))
+
+
+def _format_error() -> str:
+    import sys
+
+    _, error, _ = sys.exc_info()
+    return str(error) or error.__class__.__name__ if error else "unknown error"

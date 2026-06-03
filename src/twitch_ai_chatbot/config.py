@@ -15,6 +15,11 @@ class BotSettings(BaseSettings):
     twitch_oauth_token: str = Field(
         default="", description="OAuth token for the bot account, usually oauth:..."
     )
+    twitch_refresh_token: str = Field(
+        default="", description="Refresh token for renewing the bot user access token"
+    )
+    twitch_client_id: str = Field(default="", description="Twitch application client ID")
+    twitch_client_secret: str = Field(default="", description="Twitch application client secret")
     twitch_bot_nick: str = Field(default="", description="Twitch login of the bot account")
     twitch_channel: str = Field(default="", description="Streamer/channel to join without #")
 
@@ -58,6 +63,10 @@ class BotSettings(BaseSettings):
         )
     )
     bot_persona_extra: str = Field(default="")
+    bot_admin_users: str = Field(
+        default="ivan_cherepok",
+        description="Comma-separated Twitch logins that may use admin bot commands",
+    )
 
     read_chat: bool = Field(default=True, description="Whether the bot may use viewer chat as context")
     observe_stream: bool = Field(default=True, description="Whether to analyze video/audio from stream")
@@ -68,9 +77,19 @@ class BotSettings(BaseSettings):
     audio_interval_seconds: int = Field(default=5, ge=1)
     chat_context_messages: int = Field(default=30, ge=0, le=200)
     observation_context_items: int = Field(default=12, ge=0, le=50)
-    min_seconds_between_replies: int = Field(default=20, ge=0)
+    min_seconds_between_replies: int = Field(default=8, ge=0)
     max_reply_chars: int = Field(default=420, ge=50, le=500)
     reply_probability: float = Field(default=1.0, ge=0.0, le=1.0)
+    llm_trust_env: bool = Field(
+        default=False,
+        description="Allow OpenAI/Groq HTTP client to use HTTP_PROXY/HTTPS_PROXY env vars",
+    )
+    streamlink_trust_env: bool = Field(
+        default=False,
+        description="Allow Streamlink to use HTTP_PROXY/HTTPS_PROXY env vars",
+    )
+    request_timeout_seconds: int = Field(default=30, ge=5)
+    log_tracebacks: bool = Field(default=False, description="Log full exception tracebacks")
 
     trigger_mode: Literal["mention", "all", "streamer"] = Field(
         default="mention",
@@ -95,11 +114,24 @@ class BotSettings(BaseSettings):
             return f"oauth:{value}"
         return value
 
+    @field_validator("twitch_refresh_token", "twitch_client_id", "twitch_client_secret")
+    @classmethod
+    def strip_twitch_oauth_fields(cls, value: str) -> str:
+        return value.strip()
+
     @property
     def active_api_key(self) -> str:
         if self.llm_provider == "groq":
             return self.groq_api_key
         return self.openai_api_key
+
+    @property
+    def admin_usernames(self) -> set[str]:
+        return {
+            username.strip().lower().lstrip("@")
+            for username in self.bot_admin_users.split(",")
+            if username.strip()
+        }
 
     @property
     def active_base_url(self) -> str | None:

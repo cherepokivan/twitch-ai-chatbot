@@ -15,8 +15,9 @@
 - Опционально слышать стрим: записывает короткие аудиофрагменты через `ffmpeg` и
   транскрибирует их.
 - Иметь свою роль/персонажа, например: имя `Света`, возраст `22`, характер и лор.
-- Команда `!ai togglechat` для стримера/модератора включает или выключает чтение
-  чата для AI-контекста во время работы.
+- Команда `!ai togglechat` для стримера, модератора или админа из
+  `BOT_ADMIN_USERS` включает или выключает чтение чата для AI-контекста во время
+  работы.
 
 ## Архитектура
 
@@ -74,6 +75,20 @@ https://ffmpeg.org, затем добавьте их в `PATH`.
 В `.env` токен можно указать как `oauth:...` или без префикса — приложение само
 добавит `oauth:`.
 
+Если Twitch CLI выдал `User Access Token` и `Refresh Token`, вставьте оба. Для
+автообновления также нужны `Client ID` и `Client Secret` того же Twitch-приложения:
+
+```dotenv
+TWITCH_OAUTH_TOKEN=oauth:USER_ACCESS_TOKEN
+TWITCH_REFRESH_TOKEN=REFRESH_TOKEN
+TWITCH_CLIENT_ID=Client ID вашего Twitch-приложения
+TWITCH_CLIENT_SECRET=Client Secret вашего Twitch-приложения
+```
+
+При старте бот проверяет `TWITCH_OAUTH_TOKEN`. Если Twitch вернет `401 Unauthorized`,
+бот обновит access token через refresh token и перезапишет в `.env` новые
+`TWITCH_OAUTH_TOKEN` и `TWITCH_REFRESH_TOKEN`.
+
 ### 3. Установите Python-зависимости
 
 Linux/macOS:
@@ -118,6 +133,9 @@ Copy-Item .env.example .env
 
 ```dotenv
 TWITCH_OAUTH_TOKEN=oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWITCH_REFRESH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWITCH_CLIENT_ID=your_twitch_app_client_id
+TWITCH_CLIENT_SECRET=your_twitch_app_client_secret
 TWITCH_BOT_NICK=your_bot_login
 TWITCH_CHANNEL=streamer_login
 LLM_PROVIDER=groq
@@ -135,6 +153,9 @@ AUDIO_INTERVAL_SECONDS=5
 
 ```dotenv
 TWITCH_OAUTH_TOKEN=oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWITCH_REFRESH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWITCH_CLIENT_ID=your_twitch_app_client_id
+TWITCH_CLIENT_SECRET=your_twitch_app_client_secret
 TWITCH_BOT_NICK=your_bot_login
 TWITCH_CHANNEL=streamer_login
 LLM_PROVIDER=openai
@@ -148,6 +169,7 @@ BOT_PERSONA_NAME=Света
 BOT_PERSONA_AGE=22
 BOT_PERSONA_ROLE=дружелюбная, немного ироничная AI-подруга стримера; отвечает коротко, живым разговорным русским языком
 BOT_PERSONA_EXTRA=любит шутить про игровые мисплеи, но не оскорбляет зрителей
+BOT_ADMIN_USERS=Ivan_Cherepok,ivan_cherepok
 ```
 
 ### 5. Запустите
@@ -161,6 +183,15 @@ twitch-ai-chatbot
 Windows PowerShell без entrypoint можно запустить так:
 
 ```powershell
+python -m twitch_ai_chatbot.main
+```
+
+Если команда выше пишет `No module named twitch_ai_chatbot`, значит проект еще не
+установлен в текущее виртуальное окружение. Выполните `pip install -e .` из шага 3
+или запустите в режиме разработки через `PYTHONPATH`:
+
+```powershell
+$env:PYTHONPATH = "src"
 python -m twitch_ai_chatbot.main
 ```
 
@@ -301,7 +332,11 @@ AUDIO_INTERVAL_SECONDS=2
    ```
 
 6. В открывшемся браузере войдите именно в Twitch-аккаунт бота и разрешите доступ.
-   Полученный токен вставьте в `.env` как `TWITCH_OAUTH_TOKEN`.
+   Полученный `User Access Token` вставьте в `.env` как `TWITCH_OAUTH_TOKEN`, а
+   `Refresh Token` — как `TWITCH_REFRESH_TOKEN`.
+7. В `.env` также укажите `TWITCH_CLIENT_ID` и `TWITCH_CLIENT_SECRET` из того же
+   приложения Twitch Developer Console. Они нужны для автоматического обновления
+   токена.
 
 ## Важные настройки
 
@@ -310,18 +345,39 @@ AUDIO_INTERVAL_SECONDS=2
 | `LLM_PROVIDER` | `groq` | Провайдер LLM: `groq` или `openai`. |
 | `GROQ_CHAT_MODEL` | `qwen/qwen3-32b` | Основная Groq-модель, которая думает и отвечает в чат. |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Groq-модель для распознавания аудио стрима, если `VOSK_ENABLED=off`. |
+| `TWITCH_REFRESH_TOKEN` | пусто | Refresh Token от Twitch CLI для автоматического обновления `TWITCH_OAUTH_TOKEN`. |
+| `TWITCH_CLIENT_ID` | пусто | Client ID Twitch-приложения, нужен для refresh token flow. |
+| `TWITCH_CLIENT_SECRET` | пусто | Client Secret Twitch-приложения, нужен для refresh token flow. |
 | `VOSK_ENABLED` | `off` | `off` использует Groq/OpenAI Whisper; `on` распознает речь локально через Vosk. |
 | `VOSK_MODEL_PATH` | `models/vosk-model-small-ru-0.22` | Путь к локальной модели Vosk, если выбран `VOSK_ENABLED=on`. |
+| `BOT_ADMIN_USERS` | `ivan_cherepok` | Twitch-логины через запятую, которым разрешены админ-команды бота. Регистр не важен. |
 | `READ_CHAT` | `true` | Можно ли отправлять последние сообщения чата в LLM-контекст. |
 | `OBSERVE_STREAM` | `true` | Включает наблюдение стрима. |
 | `OBSERVE_VIDEO` | `true` | Включает описание кадров через отдельную vision-модель Groq. |
 | `OBSERVE_AUDIO` | `true` | Включает транскрибацию аудио. |
 | `TRIGGER_MODE` | `mention` | `mention`, `streamer` или `all`. |
-| `MIN_SECONDS_BETWEEN_REPLIES` | `20` | Минимальная пауза между ответами бота. |
+| `MIN_SECONDS_BETWEEN_REPLIES` | `8` | Минимальная пауза между ответами бота. Если бот ответил на первое сообщение и молчит на второе, обычно причина здесь. |
 | `REPLY_PROBABILITY` | `1.0` | Вероятность ответа после срабатывания триггера. |
 | `MAX_REPLY_CHARS` | `420` | Ограничение длины ответа для Twitch-чата. |
 | `FRAME_INTERVAL_SECONDS` | `5` в `.env.example` | Как часто анализировать кадр стрима; можно снизить до 1-2 секунд ценой нагрузки. |
 | `AUDIO_INTERVAL_SECONDS` | `5` в `.env.example` | Длина аудиофрагмента для транскрибации; меньше значение = ближе к real-time. |
+| `LLM_TRUST_ENV` | `false` | Разрешить Groq/OpenAI клиенту брать proxy из системных `HTTP_PROXY`/`HTTPS_PROXY`. По умолчанию выключено, потому что `socks4://...` может ломать `httpx`. |
+| `STREAMLINK_TRUST_ENV` | `false` | Разрешить Streamlink брать proxy из системных `HTTP_PROXY`/`HTTPS_PROXY`. |
+| `REQUEST_TIMEOUT_SECONDS` | `30` | Таймаут запросов к Groq/OpenAI. |
+| `LOG_TRACEBACKS` | `false` | Включить полные traceback в консоли для отладки. По умолчанию ошибки пишутся коротко. |
+
+## Частые ошибки
+
+- `Unknown scheme for proxy URL URL('socks4://...')` — в системе задан proxy,
+  который `httpx` не умеет использовать без дополнительных пакетов. Бот по
+  умолчанию игнорирует proxy-env через `LLM_TRUST_ENV=false`.
+- `Twitch token belongs to ... but TWITCH_BOT_NICK is ...` — токен валидный, но
+  выдан не для аккаунта бота. Получите токен через Twitch CLI, войдя именно в
+  аккаунт `TWITCH_BOT_NICK`.
+- `No live stream found for ...` — Streamlink пока не видит активную трансляцию.
+  Чат-бот при этом может работать, просто наблюдения видео/аудио временно нет.
+- Если бот ответил на первое сообщение и не ответил на второе, проверьте
+  `MIN_SECONDS_BETWEEN_REPLIES`.
 
 ## Команды в чате
 
@@ -329,7 +385,7 @@ AUDIO_INTERVAL_SECONDS=2
 
 - `!ai persona` — показать имя/возраст/роль бота.
 - `!ai togglechat` — включить/выключить чтение чата для LLM-контекста. Команда
-  работает только для стримера или модератора.
+  работает для стримера, модератора или логина из `BOT_ADMIN_USERS`.
 
 ## Как бот решает, когда отвечать
 

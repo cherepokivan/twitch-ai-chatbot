@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import tempfile
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -15,6 +16,10 @@ from .memory import RollingMemory
 logger = logging.getLogger(__name__)
 
 ObservationCallback = Callable[[str, str], Awaitable[None]]
+
+
+class StreamOfflineError(RuntimeError):
+    pass
 
 
 class StreamObserver:
@@ -70,7 +75,7 @@ class StreamObserver:
                 finally:
                     frame_path.unlink(missing_ok=True)
             except Exception:  # noqa: BLE001 - keep long-running observer alive
-                logger.exception("Failed to observe stream video")
+                self._log_observer_error("video")
             await asyncio.sleep(self.settings.frame_interval_seconds)
 
     async def _audio_loop(self) -> None:
@@ -102,16 +107,27 @@ class StreamObserver:
                 finally:
                     audio_path.unlink(missing_ok=True)
             except Exception:  # noqa: BLE001 - keep long-running observer alive
-                logger.exception("Failed to observe stream audio")
-            await asyncio.sleep(1)
+                self._log_observer_error("audio")
+            await asyncio.sleep(self.settings.audio_interval_seconds)
 
     def _resolve_stream_url(self) -> str:
         session = Streamlink()
+        session.set_option("http-trust-env", self.settings.streamlink_trust_env)
         streams = session.streams(f"https://www.twitch.tv/{self.settings.twitch_channel}")
         if not streams:
-            raise RuntimeError(f"No live stream found for {self.settings.twitch_channel}")
+            raise StreamOfflineError(f"No live stream found for {self.settings.twitch_channel}")
         stream = streams.get("best") or next(iter(streams.values()))
         return stream.to_url()
+
+    def _log_observer_error(self, kind: str) -> None:
+        _, error, _ = sys.exc_info()
+        if isinstance(error, StreamOfflineError):
+            logger.warning("%s observation skipped: %s", kind.capitalize(), error)
+            return
+        if self.settings.log_tracebacks:
+            logger.exception("Failed to observe stream %s", kind)
+            return
+        logger.warning("Failed to observe stream %s: %s", kind, error)
 
     async def _run_ffmpeg(self, *args: str) -> None:
         process = await asyncio.create_subprocess_exec(

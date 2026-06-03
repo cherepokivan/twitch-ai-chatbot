@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import wave
 from pathlib import Path
 
-from groq import AsyncGroq
+import httpx
 from openai import AsyncOpenAI
 from vosk import KaldiRecognizer, Model
 
@@ -21,11 +22,10 @@ class LLMClient:
         self.client = AsyncOpenAI(
             api_key=settings.active_api_key,
             base_url=settings.active_base_url,
-        )
-        self.groq_client = (
-            AsyncGroq(api_key=settings.groq_api_key)
-            if settings.llm_provider == "groq"
-            else None
+            http_client=httpx.AsyncClient(
+                timeout=httpx.Timeout(settings.request_timeout_seconds),
+                trust_env=settings.llm_trust_env,
+            ),
         )
         self.vosk_model = Model(str(settings.vosk_model_path)) if settings.vosk_enabled else None
 
@@ -55,7 +55,7 @@ class LLMClient:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.8,
-            max_tokens=180,
+            max_tokens=260,
         )
         reply = response.choices[0].message.content or ""
         return _sanitize_reply(reply, self.settings.max_reply_chars)
@@ -96,18 +96,6 @@ class LLMClient:
     async def transcribe_audio(self, audio_path: Path) -> str:
         if self.settings.vosk_enabled:
             return await asyncio.to_thread(self._transcribe_audio_with_vosk, audio_path)
-
-        if self.settings.llm_provider == "groq":
-            if self.groq_client is None:
-                raise RuntimeError("Groq client is not configured")
-            with audio_path.open("rb") as audio_file:
-                transcription = await self.groq_client.audio.transcriptions.create(
-                    file=(audio_path.name, audio_file.read()),
-                    model=self.settings.active_transcription_model,
-                    temperature=0,
-                    response_format="verbose_json",
-                )
-            return getattr(transcription, "text", "").strip()
 
         with audio_path.open("rb") as audio_file:
             transcription = await self.client.audio.transcriptions.create(
@@ -158,11 +146,21 @@ class LLMClient:
 {incoming_author}: {incoming_message}
 
 Сформулируй одно сообщение в Twitch-чат от лица персонажа.
+Не показывай ход рассуждений, анализ, план ответа, теги <think> или служебный текст.
+Верни только готовую реплику для чата.
 """.strip()
 
 
 def _sanitize_reply(text: str, max_chars: int) -> str:
-    cleaned = " ".join(text.replace("\n", " ").split())
+    without_thinking = _strip_thinking(text)
+    cleaned = " ".join(without_thinking.replace("\n", " ").split())
     if len(cleaned) <= max_chars:
         return cleaned
     return cleaned[: max_chars - 1].rstrip() + "…"
+
+
+def _strip_thinking(text: str) -> str:
+    text = re.sub(r"<think\b[^>]*>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<think\b[^>]*>.*", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"</think>", "", text, flags=re.IGNORECASE)
+    return text.strip()
